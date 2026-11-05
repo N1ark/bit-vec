@@ -3,6 +3,9 @@ Version 0.11.0 (TO BE RELEASED)
 
 <a id="v0.11.0"></a>
 
+- fixed `fn split_off` sometimes returning a `BitVec` with an extra storage
+  block, which made a later `fn append` lose bits and broke `Hash`
+
 Version 0.10.1
 ==========================
 

@@ -1476,7 +1476,11 @@ impl<B: BitBlock> BitVec<B> {
                     other.storage.push((last >> b) | (cur << (B::bits() - b)));
                     last = cur;
                 }
-                other.storage.push(last >> b);
+                // The remaining bits of the last block may already fit in
+                // the previous one; see invariant (2).
+                if other.storage.len() < blocks_for_bits::<B>(other.nbits) {
+                    other.storage.push(last >> b);
+                }
             }
 
             self.storage.truncate(w + 1);
@@ -3296,6 +3300,29 @@ mod tests {
             true, true, false, false, true, true, false, true, true, false, true, false, true,
             true, true, false, true, false, true, true, false, true
         ]));
+    }
+
+    #[test]
+    fn test_bit_vec_split_off_storage_len() {
+        // The bits after `at` fit in fewer blocks than the source has after
+        // block `at / 32`: the returned vector must not keep a spare block.
+        let mut a = BitVec::from_elem(40, false);
+        let mut b = a.split_off(31);
+        assert_eq!(a.storage().len(), 1);
+        assert_eq!(b.len(), 9);
+        assert_eq!(b.storage().len(), 1);
+
+        // Appending at a block boundary must keep the appended bits.
+        b.grow(23, false);
+        b.append(&mut BitVec::from_elem(1, true));
+        assert_eq!(b.len(), 33);
+        assert_eq!(b.get(32), Some(true));
+
+        let mut a: BitVec<u8> = BitVec::from_elem_general(9, true);
+        let b = a.split_off(7);
+        assert_eq!(b.len(), 2);
+        assert_eq!(b.storage().len(), 1);
+        assert_eq!(b, BitVec::from_elem_general(2, true));
     }
 
     #[test]
