@@ -3,6 +3,9 @@ Version 0.11.0 (TO BE RELEASED)
 
 <a id="v0.11.0"></a>
 
+- fixed `fn nor` and `fn xnor` returning `true` when `self` did not change
+  (https://github.com/contain-rs/bit-vec/issues/165)
+
 Version 0.10.1
 ==========================
 

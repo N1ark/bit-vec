@@ -655,6 +655,30 @@ impl<B: BitBlock> BitVec<B> {
         changed_bits != B::zero()
     }
 
+    /// Like `process`, but for operations that map the unused bits of the
+    /// last block to 1s, such as nor and xnor. Clears those bits in the
+    /// result, as per (3), and does not count them as changed.
+    #[inline]
+    fn process_and_fix_last_block<F>(&mut self, other: &BitVec<B>, mut op: F) -> bool
+    where
+        F: FnMut(B, B) -> B,
+    {
+        assert_eq!(self.len(), other.len());
+        debug_assert_eq!(self.storage.len(), other.storage.len());
+        let last = self.storage.len().wrapping_sub(1);
+        let last_mask = mask_for_bits::<B>(self.nbits);
+        let mut changed_bits = B::zero();
+        for (i, (a, b)) in self.blocks_mut().zip(other.blocks()).enumerate() {
+            let mut w = op(*a, b);
+            if i == last {
+                w = w & last_mask;
+            }
+            changed_bits |= *a ^ w;
+            *a = w;
+        }
+        changed_bits != B::zero()
+    }
+
     /// Iterator over mutable refs to the underlying blocks of data.
     #[inline]
     fn blocks_mut(&mut self) -> MutBlocks<'_, B> {
@@ -724,8 +748,8 @@ impl<B: BitBlock> BitVec<B> {
         }
     }
 
-    /// Operations such as change detection for xnor, nor and nand are easiest
-    /// to implement when unused bits are all set to 1s.
+    /// Operations such as change detection for nand are easiest to implement
+    /// when unused bits are all set to 1s.
     fn fix_last_block_with_ones(&mut self) {
         if let Some((last_block, used_bits)) = self.last_block_mut_with_mask() {
             *last_block |= !used_bits;
@@ -1214,10 +1238,7 @@ impl<B: BitBlock> BitVec<B> {
     pub fn nor(&mut self, other: &Self) -> bool {
         self.ensure_invariant();
         debug_assert!(other.is_last_block_fixed());
-        self.fix_last_block_with_ones();
-        let result = self.process(other, |w1, w2| !(w1 | w2));
-        self.fix_last_block();
-        result
+        self.process_and_fix_last_block(other, |w1, w2| !(w1 | w2))
     }
 
     /// Calculates the xnor of two bitvectors.
@@ -1248,10 +1269,7 @@ impl<B: BitBlock> BitVec<B> {
     pub fn xnor(&mut self, other: &Self) -> bool {
         self.ensure_invariant();
         debug_assert!(other.is_last_block_fixed());
-        self.fix_last_block_with_ones();
-        let result = self.process(other, |w1, w2| !(w1 ^ w2));
-        self.fix_last_block();
-        result
+        self.process_and_fix_last_block(other, |w1, w2| !(w1 ^ w2))
     }
 
     /// Returns `true` if all bits are 1.
@@ -2904,6 +2922,35 @@ mod tests {
         let c = BitVec::from_bytes(&[0b1000]);
         assert!(a.nor(&b));
         assert_eq!(a, c);
+    }
+
+    #[test]
+    fn test_nor_xnor_unchanged() {
+        // The unused bits of the last block must not count as changes.
+        let mut a = BitVec::from_elem(3, false);
+        assert!(!a.nor(&BitVec::from_elem(3, true)));
+        assert_eq!(a, BitVec::from_elem(3, false));
+
+        let mut a = BitVec::from_elem(3, true);
+        assert!(!a.xnor(&BitVec::from_elem(3, true)));
+        assert_eq!(a, BitVec::from_elem(3, true));
+
+        let mut a = BitVec::from_elem(3, false);
+        assert!(!a.xnor(&BitVec::from_elem(3, true)));
+        assert_eq!(a, BitVec::from_elem(3, false));
+
+        let mut a: BitVec<u8> = BitVec::from_elem_general(9, false);
+        assert!(!a.nor(&BitVec::from_elem_general(9, true)));
+        assert_eq!(a, BitVec::from_elem_general(9, false));
+
+        // Changes in the used bits of the last block are still detected.
+        let mut a = BitVec::from_elem(35, false);
+        assert!(a.nor(&BitVec::from_elem(35, false)));
+        assert_eq!(a, BitVec::from_elem(35, true));
+
+        let mut a = BitVec::from_elem(35, false);
+        assert!(a.xnor(&BitVec::from_elem(35, false)));
+        assert_eq!(a, BitVec::from_elem(35, true));
     }
 
     #[test]
